@@ -3,7 +3,7 @@ Team Members: Blas Kojusner and Michael Perez
 
 COP5615 - Dr. Alin Dobra
 
-October 21 2021
+October 8 2021
 
 How to run:
 dotnet fsi Project2.fsx numNodes topology algorithm
