@@ -66,14 +66,14 @@ let Node boss numNodes (mailbox:Actor<_>)  =
             if (rumorsHeard = 10) then
                 boss <! GossipConverged(rumor)
             else
-                let index= r.Next(0, neighbors.Length)
+                let index = r.Next(0, neighbors.Length)
                 neighbors.[index] <! StartGossip(rumor)
 
         | StartPushSum msg ->
             printfn "starting push sum..."
             
         | Neighbors neighbors_ ->
-            neighbors<-neighbors_
+            neighbors <- neighbors_
 
         | _-> ()
         return! loop()
@@ -81,7 +81,7 @@ let Node boss numNodes (mailbox:Actor<_>)  =
     loop()
 
 let start algo numNodes nodeArray =
-    (nodeArray : _ array)|>ignore
+    (nodeArray : _ array) |> ignore
 
     if algo = "gossip" then
         let starter = r.Next(0, numNodes-1)
@@ -94,49 +94,77 @@ let start algo numNodes nodeArray =
 
 let buildFull numNodes algo =
     printfn "Full network with %i nodes and algorithm %s" numNodes algo
+    
     let boss = Boss |> spawn system "boss"
-
     let nodes = Array.zeroCreate(numNodes)
-
-    let mutable neighbors:IActorRef[]=Array.empty
+    let mutable neighbors:IActorRef[] = Array.empty
             
     for i in [0..numNodes-1] do
         nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
     
     for i in [0..numNodes-1] do
-        if i=0 then
-            neighbors<-nodes.[1..numNodes-1]
+        if i = 0 then
+            neighbors <- nodes.[1..numNodes-1]
             nodes.[i] <! Neighbors(neighbors)
-        elif i=(numNodes-1) then 
-            neighbors<-nodes.[0..(numNodes-2)]
+        elif i = (numNodes-1) then 
+            neighbors <- nodes.[0..(numNodes-2)]
             nodes.[i] <! Neighbors(neighbors)
         else
-            neighbors<-Array.append nodes.[0..i-1] nodes.[i+1..numNodes-1]
+            neighbors <- Array.append nodes.[0..i-1] nodes.[i+1..numNodes-1]
             nodes.[i] <! Neighbors(neighbors)
    
     timer.Start()
     boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, numNodes, nodes)
-
     start algo numNodes nodes
 
 let build3dGrid numNodes algo =
     printfn "3D grid with %i nodes and algorithm %s" numNodes algo
-    let boss = Boss |> spawn system "boss"
 
+    let boss = Boss |> spawn system "boss"
     let nodes = Array.zeroCreate(numNodes)
+    let mutable neighbors:IActorRef[]=Array.empty
     
+    for i in [0..numNodes-1] do
+        nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
+
     //for i in [0..numNodes-1] do
-    //    nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
+    //    if i = 0 then
+    //        neighbors <- nodes.[1..numNodes-1]
+    //        nodes.[i] <! Neighbors(neighbors)
+    //    elif i = (numNodes-1) then 
+    //        neighbors <- nodes.[0..(numNodes-2)]
+    //        nodes.[i] <! Neighbors(neighbors)
+    //    else
+    //        neighbors <- Array.append nodes.[0..i-1] nodes.[i+1..numNodes-1]
+     //       nodes.[i] <! Neighbors(neighbors)
 
     timer.Start()
+    boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, numNodes, nodes)
     start algo numNodes nodes
 
 let buildLine numNodes algo =
     printfn "Line with %i nodes and algorithm %s" numNodes algo
+    
     let boss = Boss |> spawn system "boss"
     let nodes = Array.zeroCreate(numNodes)
+    let mutable neighbors:IActorRef[]=Array.empty
+
+    for i in [0..numNodes-1] do
+        nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
+
+    for i in [0..numNodes-1] do
+        if i = 0 then
+            neighbors <- nodes.[1..1]
+            nodes.[i] <! Neighbors(neighbors)
+        elif i = (numNodes-1) then 
+            neighbors <- nodes.[(numNodes-2)..(numNodes-2)]
+            nodes.[i] <! Neighbors(neighbors)
+        else
+            neighbors <- Array.append nodes.[i-1..i-1] nodes.[i+1..i+1]
+            nodes.[i] <! Neighbors(neighbors)
 
     timer.Start()
+    boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, numNodes, nodes)
     start algo numNodes nodes
 
 let buildImp3d numNodes algo =
