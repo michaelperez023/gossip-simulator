@@ -66,17 +66,13 @@ let Node boss numNodes (mailbox:Actor<_>)  =
             if (rumorsHeard = 10) then
                 boss <! GossipConverged(rumor)
             else
-                let index = r.Next(0, neighbors.Length)
-                neighbors.[index] <! StartGossip(rumor)
+                neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor)
 
         | StartPushSum msg ->
             printfn "starting push sum..."
             
         | Neighbors neighbors_ ->
             neighbors <- neighbors_
-            //for i in 0..neighbors.Length-1 do
-              //  let name = neighbors.[i].ToString()
-                //printfn "%s" name
 
         | _-> ()
         return! loop()
@@ -130,8 +126,8 @@ let build3dGrid numNodes algo =
     for i in [0..numNodes-1] do
         nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
 
-    let rowCount = int ((float numNodes) ** (1.0/3.0)) // number of indices that correspond to a 1D row in the 3D grid
-    let sliceCount = int ((float numNodes) ** (2.0/3.0)) + 1 // number of indices that correspond to a 2D slice of the 3D grid
+    let rowCount = int (ceil((float numNodes) ** (1.0/3.0))) // number of indices that correspond to a 1D row in the 3D grid
+    let sliceCount = rowCount * rowCount // number of indices that correspond to a 2D slice of the 3D grid
     
     for i in [0..numNodes - 1] do
         if i = 0 then
@@ -209,7 +205,7 @@ let build3dGrid numNodes algo =
         elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount < rowCount - 1) then 
             neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) top face
             nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount > rowCount + 1) then 
+        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount > sliceCount - rowCount) then 
             neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) bottom face
             nodes.[i] <! Neighbors(neighbors)
         else
@@ -333,7 +329,7 @@ let buildImp3d numNodes algo =
         elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount < rowCount - 1) then 
             neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) top face
             nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount > rowCount + 1) then 
+        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount > sliceCount - rowCount) then 
             neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) bottom face
             nodes.[i] <! Neighbors(neighbors)
         else
@@ -358,7 +354,6 @@ match fsi.CommandLineArgs.Length with
     else printfn "Wrong Topology Argument!"
 
     //System.Console.ReadLine() |> ignore
-
     system.WhenTerminated.Wait()
     ()
 | _ -> failwith "Error, run program with command: 'dotnet fsi Project2.fsx <numNodes> <topology> <algorithm>'"
