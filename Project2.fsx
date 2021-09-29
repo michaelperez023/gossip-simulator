@@ -14,7 +14,7 @@ let r = System.Random()
 type Messages =
     | StartGossip of String
     | GossipConverged of String
-    | StartPushSum of int
+    | StartPushSum
     | PushSum of float * float
     | PushSumConverged of float * float
     | Neighbors of IActorRef[]
@@ -90,9 +90,9 @@ let Node boss numNodes (mailbox:Actor<_>)  =
                 else
                     neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor)
 
-            | StartPushSum num ->
+            | StartPushSum ->
                 let temp = r.Next(0,neighbors.Length)
-                neighbors.[temp] <! PushSum((temp |> float),1.0)
+                neighbors.[temp] <! PushSum((temp |> float), 1.0)
 
             | PushSum (s,w) ->
                 if converged then
@@ -139,8 +139,7 @@ let start algo numNodes nodeArray =
     if algo = "gossip" then
         nodeArray.[r.Next(0, numNodes-1)] <! StartGossip("Hello")
     elif algo = "push-sum" then
-        let num = r.Next(0, numNodes-1)
-        nodeArray.[num] <! StartPushSum(num)
+        nodeArray.[r.Next(0, numNodes-1)] <! StartPushSum
     else
         printfn "Wrong Algorithm Argument!"
 
@@ -174,7 +173,7 @@ let build3dGrid numNodes algo =
 
     let boss = Boss |> spawn system "boss"
 
-    let roundedNumNodes = int (float (int (ceil((float numNodes) ** (1.0/3.0)))) ** 3.0) // round number of nodes up to nearest cube
+    let roundedNumNodes = int (float (int (ceil((float numNodes) ** (1.0/3.0)))) ** 3.0) // round number of nodes up to nearest perfect cube
     printfn "number of nodes: %i" roundedNumNodes
 
     let nodes = Array.zeroCreate(roundedNumNodes)
@@ -306,7 +305,7 @@ let buildImp3d numNodes algo =
     printfn "Imperfect 3d grid build with %i nodes and algorithm %s" numNodes algo
     let boss = Boss |> spawn system "boss"
 
-    let roundedNumNodes = int (float (int (ceil((float numNodes) ** (1.0/3.0)))) ** 3.0) // round number of nodes up to nearest cube
+    let roundedNumNodes = int (float (int (ceil((float numNodes) ** (1.0/3.0)))) ** 3.0) // round number of nodes up to nearest perfect cube
     printfn "number of nodes: %i" roundedNumNodes
 
     let nodes = Array.zeroCreate(roundedNumNodes)
@@ -420,7 +419,7 @@ match fsi.CommandLineArgs.Length with
     elif topology="3D" then build3dGrid numNodes algo
     elif topology="line" then buildLine numNodes algo
     elif topology="imp3D" then buildImp3d numNodes algo
-    else printfn "Wrong Topology Argument!"
+    else printfn "Wrong Topology Argument"
 
     //System.Console.ReadLine() |> ignore
     system.WhenTerminated.Wait()
