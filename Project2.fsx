@@ -13,17 +13,18 @@ let r = System.Random()
 
 type Messages =
     | StartGossip of String
-    | StartPushSum of String
+    | GossipConverged of String
+    | StartPushSum of int
+    | PushSum of float * float
+    | PushSumConverged of float * float
     | Neighbors of IActorRef[]
     | BossInit of int * int * IActorRef[]
-    | GossipConverged of String
-    | PushSumConverged of float * float
 
 let Boss (mailbox:Actor<_>) = 
     let mutable startTime = 0
-    let mutable numNodes = 0
+    let mutable totalNodes = 0
     let mutable nodes:IActorRef[] = [||]
-    let mutable numRumors = 0
+    let mutable nodeCount = 0
 
     let rec loop() = actor {
 
@@ -31,20 +32,30 @@ let Boss (mailbox:Actor<_>) =
         match message with 
             
         | GossipConverged message ->
-            numRumors <- numRumors + 1
-            if numRumors = numNodes then
+            nodeCount <- nodeCount + 1
+            if nodeCount = totalNodes then
                 let rTime = timer.ElapsedMilliseconds
                 let endTime = System.DateTime.Now.TimeOfDay.Milliseconds
                 printfn "Convergence time from timer: %A ms" rTime
                 printfn "Convergence time from System Time: %A ms" (endTime - startTime)
                 Environment.Exit 0
             else
-                let index = r.Next(0, nodes.Length)
-                nodes.[index] <! StartGossip("Hello")
+                nodes.[r.Next(0, nodes.Length)] <! StartGossip(message)
         
-        | BossInit (startTime_, numNodes_, nodes_) ->
+        | PushSumConverged (s, w) ->
+            nodeCount <- nodeCount + 1
+            if nodeCount = totalNodes then
+                let rTime = timer.ElapsedMilliseconds
+                let endTime = System.DateTime.Now.TimeOfDay.Milliseconds
+                printfn "Convergence time from timer: %A ms" rTime
+                printfn "Convergence time from System Time: %A ms" (endTime - startTime)
+                Environment.Exit 0
+            else
+                nodes.[r.Next(0, nodes.Length)] <! PushSum(s, w)
+        
+        | BossInit (startTime_, totalNodes_, nodes_) ->
             startTime <- startTime_
-            numNodes <- numNodes_
+            totalNodes <- totalNodes_
             nodes <- nodes_
 
         | _->()
@@ -57,24 +68,67 @@ let Node boss numNodes (mailbox:Actor<_>)  =
     let mutable neighbors:IActorRef[] = [||]
     let mutable rumorsHeard = 0
 
+    let mutable sum = numNodes |> float
+    let mutable weight = 1.0
+    let mutable roundCount = 1
+    let mutable ratioRound1 = 1.0
+    let mutable ratioRound2 = 1.0
+    let mutable ratioRound3 = 1.0
+    let mutable ratioRound4 = 1.0
+    let mutable converged = false
+    let mutable inFirstThreeRounds = true
+    let ratioChangeThresh = 10.0 ** -10.0
+
     let rec loop() = actor {
         let! message = mailbox.Receive()
         match message with
-        | StartGossip rumor ->
-            rumorsHeard <- rumorsHeard + 1
+            | StartGossip rumor ->
+                rumorsHeard <- rumorsHeard + 1
 
-            if (rumorsHeard = 10) then
-                boss <! GossipConverged(rumor)
-            else
-                neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor)
+                if (rumorsHeard = 10) then
+                    boss <! GossipConverged(rumor)
+                else
+                    neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor)
 
-        | StartPushSum msg ->
-            printfn "starting push sum..."
-            
-        | Neighbors neighbors_ ->
-            neighbors <- neighbors_
+            | StartPushSum num ->
+                let temp = r.Next(0,neighbors.Length)
+                neighbors.[temp] <! PushSum((temp |> float),1.0)
 
-        | _-> ()
+            | PushSum (s,w) ->
+                if converged then
+                    neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
+
+                if inFirstThreeRounds then
+                    if roundCount = 1 then
+                        ratioRound1 <- sum/weight
+                    elif roundCount = 2 then
+                        ratioRound2 <- sum/weight
+                    elif roundCount = 3 then
+                        ratioRound3 <- sum/weight
+                        inFirstThreeRounds <- false
+                
+                sum <- (sum + s)/2.0
+                weight <- (weight + w)/2.0
+                ratioRound4 <- sum/weight
+
+                if not inFirstThreeRounds then
+                    neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
+                
+                if abs(ratioRound4 - ratioRound1) <= ratioChangeThresh && not converged then
+                    converged <- true
+                    boss <! PushSumConverged(sum, weight)
+                else
+                    ratioRound1 <- ratioRound2
+                    ratioRound2 <- ratioRound3
+                    ratioRound3 <- ratioRound4
+                    neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
+
+                roundCount <- roundCount + 1
+                
+            | Neighbors neighbors_ ->
+                neighbors <- neighbors_
+
+            | _-> ()
         return! loop()
     }
     loop()
@@ -83,11 +137,10 @@ let start algo numNodes nodeArray =
     (nodeArray : _ array) |> ignore
 
     if algo = "gossip" then
-        let starter = r.Next(0, numNodes-1)
-        nodeArray.[starter] <! StartGossip("Hello")
+        nodeArray.[r.Next(0, numNodes-1)] <! StartGossip("Hello")
     elif algo = "push-sum" then
-        let starter = r.Next(0, numNodes-1)
-        nodeArray.[starter] <! StartPushSum("Hello")
+        let num = r.Next(0, numNodes-1)
+        nodeArray.[num] <! StartPushSum(num)
     else
         printfn "Wrong Algorithm Argument!"
 
@@ -120,101 +173,109 @@ let build3dGrid numNodes algo =
     printfn "3D grid with %i nodes and algorithm %s" numNodes algo
 
     let boss = Boss |> spawn system "boss"
-    let nodes = Array.zeroCreate(numNodes)
+
+    let roundedNumNodes = int (float (int (ceil((float numNodes) ** (1.0/3.0)))) ** 3.0) // round number of nodes up to nearest cube
+    printfn "number of nodes: %i" roundedNumNodes
+
+    let nodes = Array.zeroCreate(roundedNumNodes)
     let mutable neighbors:IActorRef[]=Array.empty
-    
-    for i in [0..numNodes-1] do
+
+    for i in [0..roundedNumNodes-1] do
         nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
 
     let rowCount = int (ceil((float numNodes) ** (1.0/3.0))) // number of indices that correspond to a 1D row in the 3D grid
     let sliceCount = rowCount * rowCount // number of indices that correspond to a 2D slice of the 3D grid
-    
-    for i in [0..numNodes - 1] do
-        if i = 0 then
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = rowCount - 1 then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = sliceCount - rowCount then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = sliceCount - 1 then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = sliceCount * (rowCount - 1) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = sliceCount * (rowCount - 1) + rowCount - 1 then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = numNodes - rowCount then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = numNodes - 1 then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > 0 && i < rowCount - 1 then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount];|] // front face top row edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > rowCount - 1 && i < sliceCount - rowCount && i % rowCount = 0 then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount];|] // front face left column edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > rowCount - 1 && i < sliceCount - rowCount && (i+1) % rowCount = 0 then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount];|] // front face right column edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > rowCount - 1 && i < sliceCount - rowCount then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount];|] // rest of front face
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - rowCount && i < sliceCount - 1 then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount];|] // front face bottom row edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > numNodes - rowCount && i < numNodes - 1 then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i - sliceCount];|] // back face bottom row edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount * (rowCount - 1) && i < sliceCount * (rowCount - 1) + rowCount - 1 then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - sliceCount];|] // back face top row edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < numNodes - rowCount && (i % rowCount = 0) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount];|] // back face left column edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < numNodes - rowCount && ((i+1) % rowCount = 0) then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount];|] // back face right column edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < numNodes - rowCount then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount];|] // rest of back face
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount = 0) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) top left edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i - rowCount + 1) % sliceCount = 0) then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) top right edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i - ((rowCount - 1) * rowCount)) % sliceCount = 0) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) bottom left edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i + 1) % sliceCount = 0) then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) bottom right edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % rowCount = 0) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) left face
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i + 1) % rowCount = 0) then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) right face
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount < rowCount - 1) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) top face
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount > sliceCount - rowCount) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) bottom face
-            nodes.[i] <! Neighbors(neighbors)
-        else
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // inner nodes
-            nodes.[i] <! Neighbors(neighbors)
+
+    if roundedNumNodes = 1 then
+        printfn "3D grid can't be created with just one node, enter more"
+        Environment.Exit 0
+    else
+        for i in [0..roundedNumNodes - 1] do
+            if i = 0 then
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = rowCount - 1 then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = sliceCount - rowCount then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = sliceCount - 1 then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = sliceCount * (rowCount - 1) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = sliceCount * (rowCount - 1) + rowCount - 1 then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = roundedNumNodes - rowCount then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = roundedNumNodes - 1 then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > 0 && i < rowCount - 1 then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount];|] // front face top row edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > rowCount - 1 && i < sliceCount - rowCount && i % rowCount = 0 then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount];|] // front face left column edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > rowCount - 1 && i < sliceCount - rowCount && (i+1) % rowCount = 0 then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount];|] // front face right column edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > rowCount - 1 && i < sliceCount - rowCount then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount];|] // rest of front face
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - rowCount && i < sliceCount - 1 then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount];|] // front face bottom row edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > roundedNumNodes - rowCount && i < roundedNumNodes - 1 then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i - sliceCount];|] // back face bottom row edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount * (rowCount - 1) && i < sliceCount * (rowCount - 1) + rowCount - 1 then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - sliceCount];|] // back face top row edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < roundedNumNodes - rowCount && (i % rowCount = 0) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount];|] // back face left column edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < roundedNumNodes - rowCount && ((i+1) % rowCount = 0) then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount];|] // back face right column edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < roundedNumNodes - rowCount then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount];|] // rest of back face
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount = 0) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) top left edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i - rowCount + 1) % sliceCount = 0) then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) top right edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i - ((rowCount - 1) * rowCount)) % sliceCount = 0) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) bottom left edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i + 1) % sliceCount = 0) then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) bottom right edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % rowCount = 0) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) left face
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i + 1) % rowCount = 0) then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) right face
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount < rowCount - 1) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) top face
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount > sliceCount - rowCount) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // middle face(s) bottom face
+                nodes.[i] <! Neighbors(neighbors)
+            else
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount];|] // inner nodes
+                nodes.[i] <! Neighbors(neighbors)
         
     timer.Start()
-    boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, numNodes, nodes)
-    start algo numNodes nodes
+    boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, roundedNumNodes, nodes)
+    start algo roundedNumNodes nodes
 
 let buildLine numNodes algo =
     printfn "Line with %i nodes and algorithm %s" numNodes algo
@@ -244,101 +305,109 @@ let buildLine numNodes algo =
 let buildImp3d numNodes algo =
     printfn "Imperfect 3d grid build with %i nodes and algorithm %s" numNodes algo
     let boss = Boss |> spawn system "boss"
-    let nodes = Array.zeroCreate(numNodes)
+
+    let roundedNumNodes = int (float (int (ceil((float numNodes) ** (1.0/3.0)))) ** 3.0) // round number of nodes up to nearest cube
+    printfn "number of nodes: %i" roundedNumNodes
+
+    let nodes = Array.zeroCreate(roundedNumNodes)
     let mutable neighbors:IActorRef[]=Array.empty
 
-    for i in [0..numNodes-1] do
+    for i in [0..roundedNumNodes-1] do
         nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
 
-    let rowCount = int ((float numNodes) ** (1.0/3.0)) // number of indices that correspond to a 1D row in the 3D grid
-    let sliceCount = int ((float numNodes) ** (2.0/3.0)) + 1 // number of indices that correspond to a 2D slice of the 3D grid
+    let rowCount = int (ceil((float numNodes) ** (1.0/3.0))) // number of indices that correspond to a 1D row in the 3D grid
+    let sliceCount = rowCount * rowCount // number of indices that correspond to a 2D slice of the 3D grid
 
-    for i in [0..numNodes - 1] do
-        if i = 0 then
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = rowCount - 1 then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = sliceCount - rowCount then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = sliceCount - 1 then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = sliceCount * (rowCount - 1) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = sliceCount * (rowCount - 1) + rowCount - 1 then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = numNodes - rowCount then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i = numNodes - 1 then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > 0 && i < rowCount - 1 then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // front face top row edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > rowCount - 1 && i < sliceCount - rowCount && i % rowCount = 0 then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // front face left column edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > rowCount - 1 && i < sliceCount - rowCount && (i+1) % rowCount = 0 then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // front face right column edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > rowCount - 1 && i < sliceCount - rowCount then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // rest of front face
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - rowCount && i < sliceCount - 1 then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]; nodes.[r.Next(0, nodes.Length)]|] // front face bottom row edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > numNodes - rowCount && i < numNodes - 1 then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // back face bottom row edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount * (rowCount - 1) && i < sliceCount * (rowCount - 1) + rowCount - 1 then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // back face top row edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < numNodes - rowCount && (i % rowCount = 0) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // back face left column edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < numNodes - rowCount && ((i+1) % rowCount = 0) then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // back face right column edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < numNodes - rowCount then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // rest of back face
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount = 0) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) top left edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i - rowCount + 1) % sliceCount = 0) then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) top right edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i - ((rowCount - 1) * rowCount)) % sliceCount = 0) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) bottom left edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i + 1) % sliceCount = 0) then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) bottom right edge
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % rowCount = 0) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) left face
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i + 1) % rowCount = 0) then 
-            neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) right face
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount < rowCount - 1) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) top face
-            nodes.[i] <! Neighbors(neighbors)
-        elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount > sliceCount - rowCount) then 
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) bottom face
-            nodes.[i] <! Neighbors(neighbors)
-        else
-            neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // inner nodes
-            nodes.[i] <! Neighbors(neighbors)
+    if roundedNumNodes = 1 then
+        printfn "Imperfect 3D grid can't be created with just one node, enter more"
+        Environment.Exit 0
+    else
+        for i in [0..roundedNumNodes - 1] do
+            if i = 0 then
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = rowCount - 1 then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = sliceCount - rowCount then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = sliceCount - 1 then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = sliceCount * (rowCount - 1) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = sliceCount * (rowCount - 1) + rowCount - 1 then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = roundedNumNodes - rowCount then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i = roundedNumNodes - 1 then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // cube corner
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > 0 && i < rowCount - 1 then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // front face top row edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > rowCount - 1 && i < sliceCount - rowCount && i % rowCount = 0 then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // front face left column edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > rowCount - 1 && i < sliceCount - rowCount && (i+1) % rowCount = 0 then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // front face right column edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > rowCount - 1 && i < sliceCount - rowCount then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // rest of front face
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - rowCount && i < sliceCount - 1 then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]; nodes.[r.Next(0, nodes.Length)]|] // front face bottom row edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > roundedNumNodes - rowCount && i < roundedNumNodes - 1 then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // back face bottom row edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount * (rowCount - 1) && i < sliceCount * (rowCount - 1) + rowCount - 1 then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // back face top row edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < roundedNumNodes - rowCount && (i % rowCount = 0) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // back face left column edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < roundedNumNodes - rowCount && ((i+1) % rowCount = 0) then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // back face right column edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount * (rowCount - 1) + rowCount - 1 && i < roundedNumNodes - rowCount then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // rest of back face
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount = 0) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) top left edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i - rowCount + 1) % sliceCount = 0) then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) top right edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i - ((rowCount - 1) * rowCount)) % sliceCount = 0) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) bottom left edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i + 1) % sliceCount = 0) then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) bottom right edge
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % rowCount = 0) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) left face
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && ((i + 1) % rowCount = 0) then 
+                neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) right face
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount < rowCount - 1) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) top face
+                nodes.[i] <! Neighbors(neighbors)
+            elif i > sliceCount - 1 && i < sliceCount * (rowCount - 1) && (i % sliceCount > sliceCount - rowCount) then 
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // middle face(s) bottom face
+                nodes.[i] <! Neighbors(neighbors)
+            else
+                neighbors <- [|nodes.[i + 1]; nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|] // inner nodes
+                nodes.[i] <! Neighbors(neighbors)
 
     timer.Start()
-    boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, numNodes, nodes)
-    start algo numNodes nodes
+    boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, roundedNumNodes, nodes)
+    start algo roundedNumNodes nodes
 
 match fsi.CommandLineArgs.Length with
 | 4 ->
