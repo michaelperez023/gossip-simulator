@@ -1,5 +1,4 @@
-// Authors: Blas Kojusner and Michael Perez UFID: 62408470
-// Distributed Operating Systems - COP5615
+// Authors: Blas Kojusner and Michael Perez - UFID: 62408470 - Distributed Operating Systems - COP5615
 #time "on"
 #r "nuget: Akka.FSharp"
 
@@ -141,11 +140,10 @@ let start algo numNodes nodeArray =
     elif algo = "push-sum" then
         nodeArray.[r.Next(0, numNodes-1)] <! StartPushSum
     else
-        printfn "Wrong Algorithm Argument!"
+        printfn "Error, wrong algorithm argument, it must be \"gossip\" or \"push-sum\""
+        Environment.Exit 0
 
 let buildFull numNodes algo =
-    printfn "Full network with %i nodes and algorithm %s" numNodes algo
-    
     let boss = Boss |> spawn system "boss"
     let nodes = Array.zeroCreate(numNodes)
     let mutable neighbors:IActorRef[] = Array.empty
@@ -169,8 +167,6 @@ let buildFull numNodes algo =
     start algo numNodes nodes
 
 let build3dGrid numNodes algo =
-    printfn "3D grid with %i nodes and algorithm %s" numNodes algo
-
     let boss = Boss |> spawn system "boss"
 
     let roundedNumNodes = int (float (int (ceil((float numNodes) ** (1.0/3.0)))) ** 3.0) // round number of nodes up to nearest perfect cube
@@ -182,11 +178,11 @@ let build3dGrid numNodes algo =
     for i in [0..roundedNumNodes-1] do
         nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
 
-    let rowCount = int (ceil((float numNodes) ** (1.0/3.0))) // number of indices that correspond to a 1D row in the 3D grid
+    let rowCount = int ((float roundedNumNodes) ** (1.0/3.0)) // number of indices that correspond to a 1D row in the 3D grid
     let sliceCount = rowCount * rowCount // number of indices that correspond to a 2D slice of the 3D grid
 
     if roundedNumNodes = 1 then
-        printfn "3D grid can't be created with just one node, enter more"
+        printfn "Error, 3D grid can't be created with just one node, increase number of nodes"
         Environment.Exit 0
     else
         for i in [0..roundedNumNodes - 1] do
@@ -276,9 +272,7 @@ let build3dGrid numNodes algo =
     boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, roundedNumNodes, nodes)
     start algo roundedNumNodes nodes
 
-let buildLine numNodes algo =
-    printfn "Line with %i nodes and algorithm %s" numNodes algo
-    
+let buildLine numNodes algo =    
     let boss = Boss |> spawn system "boss"
     let nodes = Array.zeroCreate(numNodes)
     let mutable neighbors:IActorRef[]=Array.empty
@@ -302,7 +296,6 @@ let buildLine numNodes algo =
     start algo numNodes nodes
 
 let buildImp3d numNodes algo =
-    printfn "Imperfect 3d grid build with %i nodes and algorithm %s" numNodes algo
     let boss = Boss |> spawn system "boss"
 
     let roundedNumNodes = int (float (int (ceil((float numNodes) ** (1.0/3.0)))) ** 3.0) // round number of nodes up to nearest perfect cube
@@ -314,11 +307,11 @@ let buildImp3d numNodes algo =
     for i in [0..roundedNumNodes-1] do
         nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
 
-    let rowCount = int (ceil((float numNodes) ** (1.0/3.0))) // number of indices that correspond to a 1D row in the 3D grid
+    let rowCount = int ((float roundedNumNodes) ** (1.0/3.0)) // number of indices that correspond to a 1D row in the 3D grid
     let sliceCount = rowCount * rowCount // number of indices that correspond to a 2D slice of the 3D grid
 
     if roundedNumNodes = 1 then
-        printfn "Imperfect 3D grid can't be created with just one node, enter more"
+        printfn "Error, imperfect 3D grid can't be created with just one node, increase number of nodes"
         Environment.Exit 0
     else
         for i in [0..roundedNumNodes - 1] do
@@ -415,13 +408,15 @@ match fsi.CommandLineArgs.Length with
     let topology = args.[1] |> string
     let algo = args.[2] |> string
 
-    if topology="full" then buildFull numNodes algo
-    elif topology="3D" then build3dGrid numNodes algo
-    elif topology="line" then buildLine numNodes algo
-    elif topology="imp3D" then buildImp3d numNodes algo
-    else printfn "Wrong Topology Argument"
+    if topology = "full" then buildFull numNodes algo
+    elif topology = "3D" then build3dGrid numNodes algo
+    elif topology = "line" then buildLine numNodes algo
+    elif topology = "imp3D" then buildImp3d numNodes algo
+    else
+        printfn "Error, wrong topology argument, it must be \"full\", \"3D\", \"line\", or \"imp3D\""
+        Environment.Exit 0
 
     //System.Console.ReadLine() |> ignore
     system.WhenTerminated.Wait()
     ()
-| _ -> failwith "Error, run program with command: 'dotnet fsi Project2.fsx <numNodes> <topology> <algorithm>'"
+| _ -> failwith "Error, wrong number of arguments, run program with command: 'dotnet fsi Project2.fsx <numNodes> <topology> <algorithm>'"
