@@ -1,5 +1,4 @@
 // Authors: Blas Kojusner and Michael Perez - UFID: 62408470 - Distributed Operating Systems - COP5615
-#time "on"
 #r "nuget: Akka.FSharp"
 
 open System
@@ -17,63 +16,57 @@ type Messages =
     | PushSum of float * float
     | PushSumConverged of float * float
     | Neighbors of IActorRef[]
-    | BossInit of int * int * IActorRef[]
+    | BossInit of int * IActorRef[]
 
-let Boss (mailbox:Actor<_>) = 
-    let mutable startTime = 0
+let Boss (mailbox:Actor<_>) =
     let mutable totalNodes = 0
-    let mutable nodes:IActorRef[] = [||]
+    let mutable nodes = [||]
     let mutable nodeCount = 0
 
     let rec loop() = actor {
-
         let! message = mailbox.Receive()
         match message with 
-            
-        | GossipConverged message ->
-            nodeCount <- nodeCount + 1
-            if nodeCount = totalNodes then
-                let rTime = timer.ElapsedMilliseconds
-                let endTime = System.DateTime.Now.TimeOfDay.Milliseconds
-                printfn "Convergence time from timer: %A ms" rTime
-                printfn "Convergence time from System Time: %A ms" (endTime - startTime)
-                Environment.Exit 0
-            else
-                nodes.[r.Next(0, nodes.Length)] <! StartGossip(message)
-        
-        | PushSumConverged (s, w) ->
-            nodeCount <- nodeCount + 1
-            if nodeCount = totalNodes then
-                let rTime = timer.ElapsedMilliseconds
-                let endTime = System.DateTime.Now.TimeOfDay.Milliseconds
-                printfn "Convergence time from timer: %A ms" rTime
-                printfn "Convergence time from System Time: %A ms" (endTime - startTime)
-                Environment.Exit 0
-            else
-                nodes.[r.Next(0, nodes.Length)] <! PushSum(s, w)
-        
-        | BossInit (startTime_, totalNodes_, nodes_) ->
-            startTime <- startTime_
-            totalNodes <- totalNodes_
-            nodes <- nodes_
+            | GossipConverged message ->
+                nodeCount <- nodeCount + 1
+                if nodeCount = totalNodes then
+                    let rTime = timer.ElapsedMilliseconds
+                    printfn "Convergence time from timer: %A ms" (double rTime)
+                    Environment.Exit 0
+                else
+                    nodes.[r.Next(0, nodes.Length)] <! StartGossip(message)
 
-        | _->()
+            | PushSumConverged (s, w) ->
+                nodeCount <- nodeCount + 1
+                if nodeCount = totalNodes then
+                    let rTime = timer.ElapsedMilliseconds
+                    printfn "Convergence time from timer: %A ms" (double rTime)
+                    Environment.Exit 0
+                else
+                    nodes.[r.Next(0, nodes.Length)] <! PushSum(s, w)
 
+            | BossInit (totalNodes_, nodes_) ->
+                totalNodes <- totalNodes_
+                nodes <- nodes_
+
+            | _-> ignore()
         return! loop()
     }
     loop()
 
 let Node boss numNodes (mailbox:Actor<_>)  =
-    let mutable neighbors:IActorRef[] = [||]
     let mutable rumorsHeard = 0
+    let mutable neighbors = [||]
+    let mutable gossip = true // to track whether the algo is gossip or push-sum
+    let mutable receivedMessage = false
 
+    let mutable rumor = ""
     let mutable sum = numNodes |> float
     let mutable weight = 1.0
     let mutable roundCount = 1
-    let mutable ratioRound1 = 1.0
-    let mutable ratioRound2 = 1.0
-    let mutable ratioRound3 = 1.0
-    let mutable ratioRound4 = 1.0
+    let mutable ratioRound1 = 0.0
+    let mutable ratioRound2 = 0.0
+    let mutable ratioRound3 = 0.0
+    let mutable ratioRound4 = 0.0
     let mutable converged = false
     let mutable inFirstThreeRounds = true
     let ratioChangeThresh = 10.0 ** -10.0
@@ -81,21 +74,25 @@ let Node boss numNodes (mailbox:Actor<_>)  =
     let rec loop() = actor {
         let! message = mailbox.Receive()
         match message with
-            | StartGossip rumor ->
+            | StartGossip rumor_ ->
+                receivedMessage <- true
                 rumorsHeard <- rumorsHeard + 1
-
+                rumor <- rumor_
                 if (rumorsHeard = 10) then
-                    boss <! GossipConverged(rumor)
+                    boss <! GossipConverged(rumor_)
                 else
-                    neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor)
+                    neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor_)
 
             | StartPushSum ->
-                let temp = r.Next(0,neighbors.Length)
+                gossip <- false
+                receivedMessage <- true
+                let temp = r.Next(0, neighbors.Length)
                 neighbors.[temp] <! PushSum((temp |> float), 1.0)
 
-            | PushSum (s,w) ->
+            | PushSum (s,w)->
+                receivedMessage <- true
                 if converged then
-                    neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
+                    neighbors.[r.Next(0, neighbors.Length)] <! PushSum(s, w)
 
                 if inFirstThreeRounds then
                     if roundCount = 1 then
@@ -105,14 +102,15 @@ let Node boss numNodes (mailbox:Actor<_>)  =
                     elif roundCount = 3 then
                         ratioRound3 <- sum/weight
                         inFirstThreeRounds <- false
-                
+                    roundCount <- roundCount + 1
+
                 sum <- (sum + s)/2.0
                 weight <- (weight + w)/2.0
                 ratioRound4 <- sum/weight
 
-                if not inFirstThreeRounds then
+                if inFirstThreeRounds then
                     neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
-                
+
                 if abs(ratioRound4 - ratioRound1) <= ratioChangeThresh && not converged then
                     converged <- true
                     boss <! PushSumConverged(sum, weight)
@@ -122,12 +120,20 @@ let Node boss numNodes (mailbox:Actor<_>)  =
                     ratioRound3 <- ratioRound4
                     neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
 
-                roundCount <- roundCount + 1
-                
             | Neighbors neighbors_ ->
                 neighbors <- neighbors_
 
-            | _-> ()
+            | _-> ignore()
+
+        (*if not receivedMessage then
+            if gossip then
+                if not (rumor.Equals("")) then
+                    neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor)
+            else
+                if roundCount > 1 then
+                    neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
+        receivedMessage <- false*)
+
         return! loop()
     }
     loop()
@@ -146,7 +152,7 @@ let start algo numNodes nodeArray =
 let buildFull numNodes algo =
     let boss = Boss |> spawn system "boss"
     let nodes = Array.zeroCreate(numNodes)
-    let mutable neighbors:IActorRef[] = Array.empty
+    let mutable neighbors = Array.empty
             
     for i in [0..numNodes-1] do
         nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
@@ -163,7 +169,7 @@ let buildFull numNodes algo =
             nodes.[i] <! Neighbors(neighbors)
    
     timer.Start()
-    boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, numNodes, nodes)
+    boss <! BossInit(numNodes, nodes)
     start algo numNodes nodes
 
 let build3dGrid numNodes algo =
@@ -173,7 +179,7 @@ let build3dGrid numNodes algo =
     printfn "number of nodes: %i" roundedNumNodes
 
     let nodes = Array.zeroCreate(roundedNumNodes)
-    let mutable neighbors:IActorRef[]=Array.empty
+    let mutable neighbors = Array.empty
 
     for i in [0..roundedNumNodes-1] do
         nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
@@ -269,13 +275,13 @@ let build3dGrid numNodes algo =
                 nodes.[i] <! Neighbors(neighbors)
         
     timer.Start()
-    boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, roundedNumNodes, nodes)
+    boss <! BossInit(roundedNumNodes, nodes)
     start algo roundedNumNodes nodes
 
 let buildLine numNodes algo =    
     let boss = Boss |> spawn system "boss"
     let nodes = Array.zeroCreate(numNodes)
-    let mutable neighbors:IActorRef[]=Array.empty
+    let mutable neighbors = Array.empty
 
     for i in [0..numNodes-1] do
         nodes.[i] <- Node boss (i+1) |> spawn system ("Node" + string(i))
@@ -292,7 +298,7 @@ let buildLine numNodes algo =
             nodes.[i] <! Neighbors(neighbors)
 
     timer.Start()
-    boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, numNodes, nodes)
+    boss <! BossInit(numNodes, nodes)
     start algo numNodes nodes
 
 let buildImp3d numNodes algo =
@@ -398,7 +404,7 @@ let buildImp3d numNodes algo =
                 nodes.[i] <! Neighbors(neighbors)
 
     timer.Start()
-    boss <! BossInit(System.DateTime.Now.TimeOfDay.Milliseconds, roundedNumNodes, nodes)
+    boss <! BossInit(roundedNumNodes, nodes)
     start algo roundedNumNodes nodes
 
 match fsi.CommandLineArgs.Length with
@@ -416,7 +422,6 @@ match fsi.CommandLineArgs.Length with
         printfn "Error, wrong topology argument, it must be \"full\", \"3D\", \"line\", or \"imp3D\""
         Environment.Exit 0
 
-    //System.Console.ReadLine() |> ignore
     system.WhenTerminated.Wait()
     ()
 | _ -> failwith "Error, wrong number of arguments, run program with command: 'dotnet fsi Project2.fsx <numNodes> <topology> <algorithm>'"
