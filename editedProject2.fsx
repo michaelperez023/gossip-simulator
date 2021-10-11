@@ -39,6 +39,7 @@ let Boss (mailbox:Actor<_>) =
 
             | PushSumConverged (s, w) ->
                 nodeCount <- nodeCount + 1
+                printfn "%i actors converged" nodeCount
                 if nodeCount = totalNodes then
                     let rTime = timer.ElapsedMilliseconds
                     printfn "Convergence time from timer: %A ms" (double rTime)
@@ -483,13 +484,13 @@ match fsi.CommandLineArgs.Length with
     // Fetch topology requested
     let nodesMade =
         match fsi.CommandLineArgs.[2] with
-        | "full" -> 
+        | "full" ->
             buildFull numNodes
-        | "3D" -> 
+        | "3D" ->
             build3dGrid numNodes
-        | "line" -> 
+        | "line" ->
             buildLine numNodes
-        | "imp3D" -> 
+        | "imp3D" ->
             buildImp3d numNodes
         | _ ->
             printfn "Error, wrong topology argument, it must be \"line\", \"full\", \"3D\", or \"imp3D\""
