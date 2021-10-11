@@ -40,7 +40,7 @@ line: (5,000 nodes, 463.643L sec)
 imp3D: (5,000 nodes (rounded to 5,832), 0.599 sec), (10,000 nodes (rounded to 10,648), 1.510 sec), (20,000 nodes (rounded to 21,952), 4.073 sec), (50,000 nodes (rounded to 50,653), 11.860 sec), (100,000 nodes (rounded to 103,823), 42.246 sec), (200,000 nodes (rounded to 205,379), 78.167 sec), (500,000 nodes (rounded to 512,000), 223.884 sec), (1,000,000 nodes (rounded to 1,000,000), 555.205 sec), (2,000,000 nodes (rounded to 2,000,376), 1,137.153 sec)
 
 Push-sum
-full:
+full: (2,000 nodes, 0.689 sec)
 3D: 
 line: 
 imp3D: 
