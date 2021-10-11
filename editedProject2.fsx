@@ -71,8 +71,11 @@ let Node boss numNodes (mailbox:Actor<_>)  =
     let mutable inFirstThreeRounds = true
     let ratioChangeThresh = 10.0 ** -10.0
 
+    //let mutable doneWithRumors = false
+
     let rec loop() = actor {
         let! message = mailbox.Receive()
+        //if not doneWithRumors then
         match message with
             | StartGossip rumor_ ->
                 receivedMessage <- true
@@ -125,14 +128,18 @@ let Node boss numNodes (mailbox:Actor<_>)  =
 
             | _-> ignore()
 
-        if not receivedMessage then
+        (*if not receivedMessage then
             if gossip then
                 if not (rumor.Equals("")) then
                     neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor)
             else
                 if roundCount > 1 then
                     neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
-        receivedMessage <- false
+        receivedMessage <- false*)
+
+        (*if receivedMessage then
+            if rumorsHeard = 10 then
+                doneWithRumors <- true*)
 
         return! loop()
     }
@@ -157,7 +164,6 @@ let buildLine numNodes =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the finished array
-    timer.Start()
     boss <! BossInit(numNodes, nodes)
     nodes
 
@@ -180,7 +186,6 @@ let buildFull numNodes =
             nodes.[i] <! Neighbors(neighbors)
    
     // Start the timer and return the finished array
-    timer.Start()
     boss <! BossInit(numNodes, nodes)
     nodes
 
@@ -202,6 +207,7 @@ let build3dGrid numNodes =
     let mutable neighbors = Array.empty
     let nodes = [|for i in [0..numNodes-1] -> Node boss (i+1) |> spawn system ("Node" + string(i))|]
 
+    // Fix order to match original
     for i in [0..roundedNumNodes - 1] do
         match i with
         | i when i = 0 ->
@@ -315,7 +321,6 @@ let build3dGrid numNodes =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the 3D array
-    timer.Start()
     boss <! BossInit(roundedNumNodes, nodes)
     nodes
 
@@ -422,7 +427,6 @@ let buildImp3d numNodes =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the 3D array
-    timer.Start()
     boss <! BossInit(roundedNumNodes, nodes)
     nodes
 
@@ -444,6 +448,8 @@ match fsi.CommandLineArgs.Length with
         | _ ->
             printfn "Error, wrong topology argument, it must be \"line\", \"full\", \"3D\", or \"imp3D\""
             exit 0
+
+    timer.Start()
 
     // Match algorithm requested
     match fsi.CommandLineArgs.[3] with
