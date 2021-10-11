@@ -71,60 +71,59 @@ let Node boss numNodes (mailbox:Actor<_>)  =
     let mutable inFirstThreeRounds = true
     let ratioChangeThresh = 10.0 ** -10.0
 
-    //let mutable doneWithRumors = false
+    let mutable doneWithRumors = false
 
     let rec loop() = actor {
         let! message = mailbox.Receive()
-        //if not doneWithRumors then
-        match message with
-            | StartGossip rumor_ ->
-                receivedMessage <- true
-                rumorsHeard <- rumorsHeard + 1
-                rumor <- rumor_
-                if (rumorsHeard = 10) then
-                    boss <! GossipConverged(rumor_)
-                else
-                    neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor_)
+        if not doneWithRumors then
+            match message with
+                | StartGossip rumor_ ->
+                    receivedMessage <- true
+                    rumorsHeard <- rumorsHeard + 1
+                    rumor <- rumor_
+                    if (rumorsHeard = 10) then
+                        boss <! GossipConverged(rumor_)
+                    else
+                        neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor_)
 
-            | StartPushSum ->
-                gossip <- false
-                receivedMessage <- true
-                let temp = r.Next(0, neighbors.Length)
-                neighbors.[temp] <! PushSum((temp |> float), 1.0)
+                | StartPushSum ->
+                    gossip <- false
+                    receivedMessage <- true
+                    let temp = r.Next(0, neighbors.Length)
+                    neighbors.[temp] <! PushSum((temp |> float), 1.0)
 
-            | PushSum (s,w)->
-                receivedMessage <- true
-                if converged then
-                    neighbors.[r.Next(0, neighbors.Length)] <! PushSum(s, w)
+                | PushSum (s,w)->
+                    receivedMessage <- true
+                    if converged then
+                        neighbors.[r.Next(0, neighbors.Length)] <! PushSum(s, w)
 
-                if inFirstThreeRounds then
-                    printfn "round count: %i" roundCount
-                    ratios.[roundCount] <- sum/weight
-                    if roundCount = 2 then
-                        inFirstThreeRounds <- false
-                    roundCount <- roundCount + 1
+                    if inFirstThreeRounds then
+                        ratios.[roundCount] <- sum/weight
+                        if roundCount = 2 then
+                            inFirstThreeRounds <- false
+                        roundCount <- roundCount + 1
 
-                sum <- (sum + s)/2.0
-                weight <- (weight + w)/2.0
-                ratios.[3] <- sum/weight
+                    sum <- (sum + s)/2.0
+                    weight <- (weight + w)/2.0
+                    ratios.[3] <- sum/weight
 
-                if inFirstThreeRounds then
-                    neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
+                    if inFirstThreeRounds then
+                        neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
 
-                if abs(ratios.[3] - ratios.[0]) <= ratioChangeThresh && not converged then
-                    converged <- true
-                    boss <! PushSumConverged(sum, weight)
-                else
-                    for i in 0..2 do
-                        ratios.[i] <- ratios.[i+1]
-                    neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
+                    if abs(ratios.[3] - ratios.[0]) <= ratioChangeThresh && not converged then
+                        converged <- true
+                        boss <! PushSumConverged(sum, weight)
+                    else
+                        for i in 0..2 do
+                            ratios.[i] <- ratios.[i+1]
+                        neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
 
-            | Neighbors neighbors_ ->
-                neighbors <- neighbors_
+                | Neighbors neighbors_ ->
+                    neighbors <- neighbors_
 
-            | _-> ignore()
+                | _-> ignore()
 
-        (*if not receivedMessage then
+        if not receivedMessage then
             if gossip then
                 if not (rumor.Equals("")) then
                     neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor)
@@ -135,7 +134,7 @@ let Node boss numNodes (mailbox:Actor<_>)  =
 
         if receivedMessage then
             if rumorsHeard = 10 then
-                doneWithRumors <- true*)
+                doneWithRumors <- true
 
         return! loop()
     }
