@@ -9,6 +9,8 @@ let system = ActorSystem.Create("System")
 let timer = System.Diagnostics.Stopwatch()
 let r = System.Random()
 
+let mutable nodeCount = 0
+
 type Messages =
     | StartGossip of String
     | GossipConverged of String
@@ -138,7 +140,7 @@ let Node boss numNodes (mailbox:Actor<_>)  =
     }
     loop()
 
-let start algo numNodes nodeArray =
+(*let start algo numNodes nodeArray =
     (nodeArray : _ array) |> ignore
 
     if algo = "gossip" then
@@ -147,9 +149,9 @@ let start algo numNodes nodeArray =
         nodeArray.[r.Next(0, numNodes-1)] <! StartPushSum
     else
         printfn "Error, wrong algorithm argument, it must be \"gossip\" or \"push-sum\""
-        Environment.Exit 0
+        Environment.Exit 0*)
 
-let buildFull numNodes algo =
+let buildFull numNodes =
     // Instantiate variables for our full array
     let boss = Boss |> spawn system "boss"
     let mutable neighbors = Array.empty
@@ -168,11 +170,14 @@ let buildFull numNodes algo =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the finished array
-    timer.Start()
+    //timer.Start()
     boss <! BossInit(numNodes, nodes)
-    start algo numNodes nodes
+    //start algo numNodes nodes
+    nodeCount <- numNodes
+    nodes
 
-let build3dGrid numNodes algo =
+
+let build3dGrid numNodes =
     let boss = Boss |> spawn system "boss"
 
     // Round number of nodes up to nearest perfect cube
@@ -303,11 +308,13 @@ let build3dGrid numNodes algo =
                 nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the 3D array
-    timer.Start()
+    //timer.Start()
     boss <! BossInit(roundedNumNodes, nodes)
-    start algo roundedNumNodes nodes
+    //start algo roundedNumNodes nodes
+    nodeCount <- roundedNumNodes
+    nodes
 
-let buildLine numNodes algo =
+let buildLine numNodes =
     // Instantiate variables for our line
     let boss = Boss |> spawn system "boss"
     let mutable neighbors = Array.empty
@@ -326,11 +333,13 @@ let buildLine numNodes algo =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the finished array
-    timer.Start()
+    //timer.Start()
     boss <! BossInit(numNodes, nodes)
-    start algo numNodes nodes
+    //start algo numNodes nodes
+    nodeCount <- numNodes
+    nodes
 
-let buildImp3d numNodes algo =
+let buildImp3d numNodes =
     let boss = Boss |> spawn system "boss"
 
     // Round number of nodes up to nearest perfect cube
@@ -351,35 +360,35 @@ let buildImp3d numNodes algo =
     for i in [0..roundedNumNodes - 1] do
         match i with
         | i when i = 0 ->
-            // Cube corner
+            // Cube corner #1
             neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|]
             nodes.[i] <! Neighbors(neighbors)
         | i when i = rowCount - 1 ->
-            // Cube corner
+            // Cube corner #2
             neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|]
             nodes.[i] <! Neighbors(neighbors)
         | i when i = sliceCount - rowCount ->
-            // Cube corner
+            // Cube corner #3
             neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|]
             nodes.[i] <! Neighbors(neighbors)
         | i when i = sliceCount - 1 ->
-            // Cube corner
+            // Cube corner #4
             neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i + sliceCount]; nodes.[r.Next(0, nodes.Length)]|]
             nodes.[i] <! Neighbors(neighbors)
         | i when i = sliceCount * (rowCount - 1) ->
-            // Cube corner
+            // Cube corner #5
             neighbors <- [|nodes.[i + 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|]
             nodes.[i] <! Neighbors(neighbors)
         | i when i = sliceCount * (rowCount - 1) + rowCount - 1 ->
-            // Cube corner
+            // Cube corner $6
             neighbors <- [|nodes.[i - 1]; nodes.[i + rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|]
             nodes.[i] <! Neighbors(neighbors)
         | i when i = roundedNumNodes - rowCount ->
-            // Cube corner
+            // Cube corner #7
             neighbors <- [|nodes.[i + 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|]
             nodes.[i] <! Neighbors(neighbors)
         | i when i = roundedNumNodes - 1 ->
-            // Cube corner
+            // Cube corner #8
             neighbors <- [|nodes.[i - 1]; nodes.[i - rowCount]; nodes.[i - sliceCount]; nodes.[r.Next(0, nodes.Length)]|]
             nodes.[i] <! Neighbors(neighbors)
         | i when i > 0 && i < rowCount - 1 ->
@@ -460,27 +469,42 @@ let buildImp3d numNodes algo =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the 3D array
-    timer.Start()
+    //timer.Start()
     boss <! BossInit(roundedNumNodes, nodes)
-    start algo roundedNumNodes nodes
+    //start algo roundedNumNodes nodes
+    nodeCount <- roundedNumNodes
+    nodes
+
 
 match fsi.CommandLineArgs.Length with
 | 4 ->
     let numNodes = fsi.CommandLineArgs.[1] |> int
-    let algo = fsi.CommandLineArgs.[3]
 
     // Fetch topology requested
-    match fsi.CommandLineArgs.[2] with
-    | "full" ->
-        buildFull numNodes algo
-    | "3D" ->
-        build3dGrid numNodes algo
-    | "line" ->
-        buildLine numNodes algo
-    | "imp3D" ->
-        buildImp3d numNodes algo
+    let nodesMade =
+        match fsi.CommandLineArgs.[2] with
+        | "full" -> 
+            buildFull numNodes
+        | "3D" -> 
+            build3dGrid numNodes
+        | "line" -> 
+            buildLine numNodes
+        | "imp3D" -> 
+            buildImp3d numNodes
+        | _ ->
+            printfn "Error, wrong topology argument, it must be \"line\", \"full\", \"3D\", or \"imp3D\""
+            exit 0
+
+    timer.Start()
+
+    // Match algorithm requested
+    match fsi.CommandLineArgs.[3] with
+    | "gossip" ->
+        nodesMade.[r.Next(0, nodeCount-1)] <! StartGossip("rumor")
+    | "push-sum" ->
+        nodesMade.[r.Next(0, nodeCount-1)] <! StartPushSum
     | _ ->
-        printfn "Error, wrong topology argument, it must be \"line\", \"full\", \"3D\", or \"imp3D\""
+        printfn "Error, wrong algorithm argument, it must be \"gossip\" or \"push-sum\""
         exit 0
 
     system.WhenTerminated.Wait()
