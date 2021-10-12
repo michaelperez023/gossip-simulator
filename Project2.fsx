@@ -19,7 +19,7 @@ type Messages =
     | PushSumConverged
     | Neighbors of IActorRef[]
     | BossInit of int * IActorRef[]
-    | ExhaustedNeighbor
+    | ConvergedNeighbor
 
 let Boss (mailbox:Actor<_>) =
     let mutable totalNodes = 0
@@ -32,20 +32,16 @@ let Boss (mailbox:Actor<_>) =
             | GossipConverged message ->
                 nodeCount <- nodeCount + 1
                 if nodeCount = totalNodes then
-                    //let rTime = timer.ElapsedMilliseconds
-                    printfn "Convergence time: %A ms" (double timer.ElapsedMilliseconds)//rTime)
+                    printfn "Convergence time: %f ms" (double timer.ElapsedMilliseconds)
                     exit 0
                 else
                     nodes.[r.Next(0, nodes.Length)] <! StartGossip(message)
-
             | PushSumConverged ->
                 nodeCount <- nodeCount + 1
                 //printfn "%i actors converged" nodeCount
                 if nodeCount = totalNodes then
-                    //let rTime = timer.ElapsedMilliseconds
-                    printfn "Convergence time from timer: %A ms" (double timer.ElapsedMilliseconds)//rTime)
+                    printfn "Convergence time: %f ms" (double timer.ElapsedMilliseconds)
                     exit 0
-
             | BossInit (totalNodes_, nodes_) ->
                 totalNodes <- totalNodes_
                 nodes <- nodes_
@@ -56,19 +52,18 @@ let Boss (mailbox:Actor<_>) =
     loop()
 
 let Node boss numNodes (mailbox:Actor<_>)  =
-    let mutable rumorsHeard = 0
-    let mutable neighbors = [||]
-    let mutable gossip = true
-    let mutable receivedMessage = false
     let mutable rumor = ""
-
     let mutable sum = numNodes |> float
     let mutable weight = 1.0
     let ratioChangeThresh = 10.0 ** -10.0
-    let mutable exhausted = false
-    let mutable numExhaustedNeighbors = 0
+    let mutable numConvergedNeighbors = 0
     let mutable numRatioChanges = 0
+    let mutable rumorsHeard = 0
+    let mutable neighbors = [||]
+    let mutable converged = false
+    let mutable gossip = true
     let mutable hasInfo = false
+    let mutable receivedMessage = false
 
     let rec loop() = actor {
         let! message = mailbox.Receive()
@@ -81,56 +76,50 @@ let Node boss numNodes (mailbox:Actor<_>)  =
                     boss <! GossipConverged(rumor_)
                 else
                     neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor_)
-
             | StartPushSum ->
                 receivedMessage <- true
                 gossip <- false
-                receivedMessage <- true
                 let temp = r.Next(0, neighbors.Length)
                 neighbors.[temp] <! PushSum((temp |> float), 1.0)
-
             | PushSum(s, w) ->
                 hasInfo <- true
                 receivedMessage <- true
-                if not exhausted then
+                if not converged then
                     let newSum = sum + s
                     let newWeight = weight + w
+
                     if abs((newSum/newWeight) - (sum/weight)) < ratioChangeThresh then
                         numRatioChanges <- numRatioChanges + 1
                     else
                         numRatioChanges <- 0
+
                     if numRatioChanges = 3 then
-                        exhausted <- true
+                        converged <- true
                         boss <! PushSumConverged
                         for i in 0..neighbors.Length-1 do
-                            neighbors.[i] <! ExhaustedNeighbor
+                            neighbors.[i] <! ConvergedNeighbor
                         neighbors.[r.Next(0, neighbors.Length)] <! PushSum(s, w)
                     else
-                        sum <- newSum
-                        weight <- newWeight
-                        sum <- sum/2.0
-                        weight <- weight/2.0
+                        sum <- newSum/2.0
+                        weight <- newWeight/2.0
                         neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
                 else
                     neighbors.[r.Next(0, neighbors.Length)] <! PushSum(s, w)
-
-            | ExhaustedNeighbor ->
+            | ConvergedNeighbor ->
                 receivedMessage <- true
-                if not exhausted then
-                    numExhaustedNeighbors <- numExhaustedNeighbors + 1
-                    if numExhaustedNeighbors = neighbors.Length then
-                        exhausted <- true
+                if not converged then
+                    numConvergedNeighbors <- numConvergedNeighbors + 1
+                    if numConvergedNeighbors = neighbors.Length then
+                        converged <- true
                         boss <! PushSumConverged
-
             | Neighbors neighbors_ ->
                 receivedMessage <- true
                 neighbors <- neighbors_
-
             | _ -> ignore()
 
         if not receivedMessage then
             if gossip then
-                if rumorsHeard > 0 then//not (rumor.Equals("")) then
+                if rumorsHeard > 0 then
                     neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor)
             else
                 if hasInfo then
