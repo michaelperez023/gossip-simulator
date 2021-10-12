@@ -13,7 +13,7 @@ you can round up until you get a perfect cube), topology is one of full, 3D, lin
 imp3D, algorithm is one of gossip, push-sum.
 
 What is working:
-We implemented both algorithms, gossip and push-sum, for all topologies: full, 3D, line, and imp3D. Everything is working, and convergence is guaranteed. 
+We implemented both algorithms, gossip and push-sum, for all topologies: full, 3D, line, and imp3D. Everything is working, and convergence is guaranteed. We define convergence in the gossip protocol to be when each actor has received the rumor 10 times. We define convergence in the push-sum protocol to be when all actors either have s/w ratios that did not change more than 10^-10 in 3 consecutive rounds or if an actor's neighbor's all converged. Nodes send messages every round, not only upon receiving messages, ensuring that all actors remain busy performing computation. 
 
 Largest network we managed to deal with for each topology and algorithm:
 
@@ -42,3 +42,5 @@ full: (1,000 nodes, 1.049 sec), (2,000 nodes (rounded to 2,197), 4.291 sec), (5,
 line: (1,000 nodes, 53.677 sec), (2,000 nodes (rounded to 2,197), 112.251 sec), (5,000 nodes (rounded to 5,832), 515.882 sec), (10,000 nodes (rounded to 10,648),  sec), (20,000 nodes (rounded to 21,952),  sec), (50,000 nodes (rounded to 50,653),  sec), (100,000 nodes (rounded to 103,823),  sec), (200,000 nodes (rounded to 205,379),  sec), (500,000 nodes (rounded to 512,000),  sec), (1,000,000 nodes (rounded to 1,000,000),  sec), (2,000,000 nodes (rounded to 2,000,376),  sec)
 
 imp3D: (1,000 nodes, 1.066 sec), (2,000 nodes (rounded to 2,197), 3.42 sec), (5,000 nodes (rounded to 5,832),  9.32 sec), (10,000 nodes (rounded to 10,648), 23.801 sec), (20,000 nodes (rounded to 21,952), 91.291 sec), (50,000 nodes (rounded to 50,653), 370.300 sec), (100,000 nodes (rounded to 103,823), 275.235 sec), (200,000 nodes (rounded to 205,379),  sec), (500,000 nodes (rounded to 512,000),  sec), (1,000,000 nodes (rounded to 1,000,000),  sec), (2,000,000 nodes (rounded to 2,000,376),  sec)
+
+Interesting findings:
