@@ -17,17 +17,12 @@ We implemented both algorithms, gossip and push-sum, for all topologies: full, 3
 
 Largest network we managed to deal with for each topology and algorithm:
 (Michael's 6-core 2019 MacBook Pro)
-Gossip
-full: (50,000 nodes, 371.332 sec)
-3D: (2,000,000 nodes (rounded to 2,000,376),  sec)
-line: (5,000 nodes, 463.643 sec)
-imp3D: (2,000,000 nodes (rounded to 2,000,376), 1,137.153 sec)
 
-Push-sum
-full:
-3D: 
-line: 
-imp3D: 
+|   |  Full |  3D | Line  | Imperfect 3D  |
+|---|---|---|---|---|
+| Gossip  | 50,000 nodes, 371.332 sec  | 1,000,000 nodes (rounded to 1,000,000), 595.219 sec  | 5,000 nodes, 463.643 sec  | 2,000,000 nodes (rounded to 2,000,376), 1,137.153 sec  | 
+|  Push-Sum |   |   |   |   |
+
 
 Graphs:
 Gossip
