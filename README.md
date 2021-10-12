@@ -20,5 +20,5 @@ Largest network we managed to deal with for each topology and algorithm:
 (Michael's 6-core 2019 MacBook Pro)
 |   |  Full |  3D | Line  | Imperfect 3D  |
 |---|---|---|---|---|
-| Gossip  | 50,000 nodes, 371.332 sec  | 1,000,000 nodes (rounded to 1,000,000), 595.219 sec  | 5,000 nodes (rounded to 5,832), 463.643 sec  | 2,000,000 nodes (rounded to 2,000,376), 1,137.153 sec  | 
-|  Push-Sum | 20,000 nodes (rounded to 21,952), 1,027.658 sec  |  10,000 nodes (rounded to 10,648), 236.414 sec |  5,000 nodes (rounded to 5,832), 515.882 sec | 100,000 nodes (rounded to 103,823), 275.235 sec  |
+| Gossip  | 50,000 nodes, 371.332 sec  | 1,000,000 nodes (rounded to 1,000,000), 595.219 sec  | 5,000 nodes, 463.643 sec  | 2,000,000 nodes (rounded to 2,000,376), 1,137.153 sec  | 
+|  Push-Sum | 20,000 nodes, 1,027.658 sec  |  10,000 nodes (rounded to 10,648), 236.414 sec |  5,000 nodes, 515.882 sec | 100,000 nodes (rounded to 103,823), 275.235 sec  |
