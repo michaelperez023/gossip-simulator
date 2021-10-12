@@ -40,7 +40,7 @@ let Boss (mailbox:Actor<_>) =
 
             | PushSumConverged ->
                 nodeCount <- nodeCount + 1
-                printfn "%i actors converged" nodeCount
+                //printfn "%i actors converged" nodeCount
                 if nodeCount = totalNodes then
                     let rTime = timer.ElapsedMilliseconds
                     printfn "Convergence time from timer: %A ms" (double rTime)
@@ -58,6 +58,9 @@ let Boss (mailbox:Actor<_>) =
 let Node boss numNodes (mailbox:Actor<_>)  =
     let mutable rumorsHeard = 0
     let mutable neighbors = [||]
+    let mutable gossip = true
+    let mutable receivedMessage = false
+    let mutable rumor = ""
 
     let mutable sum = numNodes |> float
     let mutable weight = 1.0
@@ -65,12 +68,13 @@ let Node boss numNodes (mailbox:Actor<_>)  =
     let mutable exhausted = false
     let mutable numExhaustedNeighbors = 0
     let mutable numRatioChanges = 0
+    let mutable hasInfo = false
 
     let rec loop() = actor {
         let! message = mailbox.Receive()
         match message with
             | StartGossip rumor_ ->
-                rumorsHeard <- rumorsHeard + 1
+                receivedMessage <- true
                 rumor <- rumor_
                 if (rumorsHeard = 10) then
                     boss <! GossipConverged(rumor_)
@@ -79,81 +83,60 @@ let Node boss numNodes (mailbox:Actor<_>)  =
 
             | StartPushSum ->
                 receivedMessage <- true
+                gossip <- false
+                receivedMessage <- true
                 let temp = r.Next(0, neighbors.Length)
                 neighbors.[temp] <! PushSum((temp |> float), 1.0)
 
-            (*| PushSum (s,w)->
+            | PushSum(s, w) ->
+                hasInfo <- true
                 receivedMessage <- true
-                if converged then
+                if not exhausted then
+                    let newSum = sum + s
+                    let newWeight = weight + w
+                    if abs((newSum/newWeight) - (sum/weight)) < ratioChangeThresh then
+                        numRatioChanges <- numRatioChanges + 1
+                    else
+                        numRatioChanges <- 0
+                    if numRatioChanges = 3 then
+                        exhausted <- true
+                        boss <! PushSumConverged
+                        for i in 0..neighbors.Length-1 do
+                            neighbors.[i] <! ExhaustedNeighbor
+                        neighbors.[r.Next(0, neighbors.Length)] <! PushSum(s, w)
+                    else
+                        sum <- newSum
+                        weight <- newWeight
+                        sum <- sum/2.0
+                        weight <- weight/2.0
+                        neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
+                else
                     neighbors.[r.Next(0, neighbors.Length)] <! PushSum(s, w)
 
-                if inFirstThreeRounds then
-                    ratios.[roundCount] <- sum/weight
-                    if roundCount = 2 then
-                        inFirstThreeRounds <- false
-                    roundCount <- roundCount + 1
-
-                sum <- (sum + s)/2.0
-                weight <- (weight + w)/2.0
-                ratios.[3] <- sum/weight
-
-                if inFirstThreeRounds then
-                    neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
-
-                if abs(ratios.[3] - ratios.[0]) <= ratioChangeThresh && not converged then
-                    converged <- true
-                    boss <! PushSumConverged(sum, weight)
-                else
-                    for i in 0..2 do
-                        ratios.[i] <- ratios.[i+1]
-                    neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)*)
-            | PushSum(s, w) ->
-                        if not exhausted then
-                            let newSum = sum + s
-                            let newWeight = weight + w
-                            if abs((newSum/newWeight) - (sum/weight)) < ratioChangeThresh then
-                                numRatioChanges <- numRatioChanges + 1
-                            else
-                                numRatioChanges <- 0
-                            if numRatioChanges = 3 then
-                                exhausted <- true
-                                boss <! PushSumConverged
-                                for i in 0..neighbors.Length-1 do
-                                    neighbors.[i] <! ExhaustedNeighbor
-                                neighbors.[r.Next(0, neighbors.Length)] <! PushSum(s, w)
-                            else
-                                sum <- newSum
-                                weight <- newWeight
-                                sum <- sum/2.0
-                                weight <- weight/2.0
-                                neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
-                        else
-                            neighbors.[r.Next(0, neighbors.Length)] <! PushSum(s, w)
-
             | ExhaustedNeighbor ->
-                    if not exhausted then
-                        numExhaustedNeighbors <- numExhaustedNeighbors + 1
-                        if numExhaustedNeighbors = neighbors.Length then
-                            exhausted <- true
-                            boss <! PushSumConverged
+                receivedMessage <- true
+                if not exhausted then
+                    numExhaustedNeighbors <- numExhaustedNeighbors + 1
+                    if numExhaustedNeighbors = neighbors.Length then
+                        exhausted <- true
+                        boss <! PushSumConverged
 
             | Neighbors neighbors_ ->
+                receivedMessage <- true
                 neighbors <- neighbors_
 
-            | _-> ignore()
+            | _ -> ignore()
 
-        (*if not receivedMessage then
+        if not receivedMessage then
             if gossip then
                 if not (rumor.Equals("")) then
                     neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor)
             else
-                if roundCount > 1 then
+                if hasInfo then
+                    sum <- sum/2.0
+                    weight <- weight/2.0
                     neighbors.[r.Next(0, neighbors.Length)] <! PushSum(sum, weight)
         receivedMessage <- false
-
-        if receivedMessage then
-            if rumorsHeard = 10 then
-                doneWithRumors <- true*)
 
         return! loop()
     }
