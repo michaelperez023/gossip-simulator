@@ -161,9 +161,7 @@ let buildFull numNodes =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the finished array
-    //timer.Start()
     boss <! BossInit(numNodes, nodes)
-    //start algo numNodes nodes
     nodeCount <- numNodes
     nodes
 
@@ -299,9 +297,7 @@ let build3dGrid numNodes =
                 nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the 3D array
-    //timer.Start()
     boss <! BossInit(roundedNumNodes, nodes)
-    //start algo roundedNumNodes nodes
     nodeCount <- roundedNumNodes
     nodes
 
@@ -324,9 +320,7 @@ let buildLine numNodes =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the finished array
-    //timer.Start()
     boss <! BossInit(numNodes, nodes)
-    //start algo numNodes nodes
     nodeCount <- numNodes
     nodes
 
@@ -460,10 +454,7 @@ let buildImp3d numNodes =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the 3D array
-    //timer.Start()
     boss <! BossInit(roundedNumNodes, nodes)
-    //start algo roundedNumNodes nodes
-    nodeCount <- roundedNumNodes
     nodes
 
 
