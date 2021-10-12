@@ -164,7 +164,6 @@ let build3dGrid numNodes =
     printfn "number of nodes: %i" roundedNumNodes
     // Get the number of indices that correspond to a 1D row in the 3D grid
     let rowCount = int (ceil((float numNodes) ** (1.0/3.0)))
-    printfn "row count: %i" rowCount
     // Get the number of indices that correspond to a 2D slice of the 3D grid
     let sliceCount = rowCount * rowCount
     if roundedNumNodes = 1 then
@@ -321,7 +320,7 @@ let buildImp3d numNodes =
     let roundedNumNodes = int (float (int (ceil((float numNodes) ** (1.0/3.0)))) ** 3.0)
     printfn "number of nodes: %i" roundedNumNodes
     // Get the number of indices that correspond to a 1D row in the 3D grid
-    let rowCount = int ((float roundedNumNodes) ** (1.0/3.0))
+    let rowCount = int (ceil((float numNodes) ** (1.0/3.0)))
     // Get the number of indices that correspond to a 2D slice of the 3D grid
     let sliceCount = rowCount * rowCount
     if roundedNumNodes = 1 then
