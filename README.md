@@ -21,7 +21,7 @@ Largest network we managed to deal with for each topology and algorithm:
 |   |  Full |  3D | Line  | Imperfect 3D  |
 |---|---|---|---|---|
 | Gossip  | 50,000 nodes, 371.332 sec  | 1,000,000 nodes (rounded to 1,000,000), 595.219 sec  | 5,000 nodes (rounded to 5,832), 463.643 sec  | 2,000,000 nodes (rounded to 2,000,376), 1,137.153 sec  | 
-|  Push-Sum | 20,000 nodes (rounded to 21,952), 1,027.658 sec  |  10,000 nodes (rounded to 10,648), 236.414 sec |  2,000 nodes (rounded to 2,197), 112.251 sec | 20,000 nodes (rounded to 21,952), 91.291 sec  |
+|  Push-Sum | 20,000 nodes (rounded to 21,952), 1,027.658 sec  |  10,000 nodes (rounded to 10,648), 236.414 sec |  2,000 nodes (rounded to 2,197), 112.251 sec | 50,000 nodes (rounded to 50,653), 370.300 sec  |
 
 
 Graphs:
