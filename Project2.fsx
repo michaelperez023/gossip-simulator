@@ -32,9 +32,9 @@ let Boss (mailbox:Actor<_>) =
             | GossipConverged message ->
                 nodeCount <- nodeCount + 1
                 if nodeCount = totalNodes then
-                    let rTime = timer.ElapsedMilliseconds
-                    printfn "Convergence time from timer: %A ms" (double rTime)
-                    Environment.Exit 0
+                    //let rTime = timer.ElapsedMilliseconds
+                    printfn "Convergence time: %f ms" (double timer.ElapsedMilliseconds)//rTime)
+                    exit 0
                 else
                     nodes.[r.Next(0, nodes.Length)] <! StartGossip(message)
 
@@ -42,9 +42,9 @@ let Boss (mailbox:Actor<_>) =
                 nodeCount <- nodeCount + 1
                 //printfn "%i actors converged" nodeCount
                 if nodeCount = totalNodes then
-                    let rTime = timer.ElapsedMilliseconds
-                    printfn "Convergence time from timer: %A ms" (double rTime)
-                    Environment.Exit 0
+                    //let rTime = timer.ElapsedMilliseconds
+                    printfn "Convergence time from timer: %A ms" (double timer.ElapsedMilliseconds)//rTime)
+                    exit 0
 
             | BossInit (totalNodes_, nodes_) ->
                 totalNodes <- totalNodes_
@@ -179,7 +179,7 @@ let build3dGrid numNodes =
     let sliceCount = rowCount * rowCount
     if roundedNumNodes = 1 then
         printfn "Error, 3D grid can't be created with just one node, increase number of nodes"
-        Environment.Exit 0
+        exit 0
 
     // Create our 3D array
     let mutable neighbors = Array.empty
@@ -336,7 +336,7 @@ let buildImp3d numNodes =
     let sliceCount = rowCount * rowCount
     if roundedNumNodes = 1 then
         printfn "Error, imperfect 3D grid can't be created with just one node, increase number of nodes"
-        Environment.Exit 0
+        exit 0
 
     // Create our Imp3D array
     let mutable neighbors:IActorRef[] = Array.empty
