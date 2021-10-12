@@ -140,17 +140,6 @@ let Node boss numNodes (mailbox:Actor<_>)  =
     }
     loop()
 
-(*let start algo numNodes nodeArray =
-    (nodeArray : _ array) |> ignore
-
-    if algo = "gossip" then
-        nodeArray.[r.Next(0, numNodes-1)] <! StartGossip("Hello")
-    elif algo = "push-sum" then
-        nodeArray.[r.Next(0, numNodes-1)] <! StartPushSum
-    else
-        printfn "Error, wrong algorithm argument, it must be \"gossip\" or \"push-sum\""
-        Environment.Exit 0*)
-
 let buildFull numNodes =
     // Instantiate variables for our full array
     let boss = Boss |> spawn system "boss"
@@ -170,9 +159,7 @@ let buildFull numNodes =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the finished array
-    //timer.Start()
     boss <! BossInit(numNodes, nodes)
-    //start algo numNodes nodes
     nodeCount <- numNodes
     nodes
 
@@ -308,9 +295,7 @@ let build3dGrid numNodes =
                 nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the 3D array
-    //timer.Start()
     boss <! BossInit(roundedNumNodes, nodes)
-    //start algo roundedNumNodes nodes
     nodeCount <- roundedNumNodes
     nodes
 
@@ -333,9 +318,7 @@ let buildLine numNodes =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the finished array
-    //timer.Start()
     boss <! BossInit(numNodes, nodes)
-    //start algo numNodes nodes
     nodeCount <- numNodes
     nodes
 
@@ -469,9 +452,7 @@ let buildImp3d numNodes =
             nodes.[i] <! Neighbors(neighbors)
 
     // Start the timer and return the 3D array
-    //timer.Start()
     boss <! BossInit(roundedNumNodes, nodes)
-    //start algo roundedNumNodes nodes
     nodeCount <- roundedNumNodes
     nodes
 
