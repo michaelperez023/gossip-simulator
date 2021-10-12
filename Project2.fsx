@@ -33,7 +33,7 @@ let Boss (mailbox:Actor<_>) =
                 nodeCount <- nodeCount + 1
                 if nodeCount = totalNodes then
                     //let rTime = timer.ElapsedMilliseconds
-                    printfn "Convergence time: %f ms" (double timer.ElapsedMilliseconds)//rTime)
+                    printfn "Convergence time: %A ms" (double timer.ElapsedMilliseconds)//rTime)
                     exit 0
                 else
                     nodes.[r.Next(0, nodes.Length)] <! StartGossip(message)
@@ -76,6 +76,7 @@ let Node boss numNodes (mailbox:Actor<_>)  =
             | StartGossip rumor_ ->
                 receivedMessage <- true
                 rumor <- rumor_
+                rumorsHeard <- rumorsHeard + 1
                 if (rumorsHeard = 10) then
                     boss <! GossipConverged(rumor_)
                 else
@@ -129,7 +130,7 @@ let Node boss numNodes (mailbox:Actor<_>)  =
 
         if not receivedMessage then
             if gossip then
-                if not (rumor.Equals("")) then
+                if rumorsHeard > 0 then//not (rumor.Equals("")) then
                     neighbors.[r.Next(0, neighbors.Length)] <! StartGossip(rumor)
             else
                 if hasInfo then
