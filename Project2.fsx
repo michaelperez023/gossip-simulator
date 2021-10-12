@@ -444,6 +444,7 @@ let buildImp3d numNodes =
 
     // Start the timer and return the 3D array
     boss <! BossInit(roundedNumNodes, nodes)
+    nodeCount <- roundedNumNodes
     nodes
 
 
