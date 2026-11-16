@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    defaults:
+      run:
+        # bash -eo pipefail: a run that fails inside a pipeline fails the step
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Two nodes, every topology and algorithm
+        run: |
+          for topology in full 3D line imp3D; do
+            for algorithm in gossip push-sum; do
+              timeout 300 dotnet fsi GossipSimulator.fsx 2 "$topology" "$algorithm" --seed 1 --verify
+            done
+          done
+
+      - name: 1000 nodes (50 for push-sum on a line), every topology and algorithm
+        run: |
+          for topology in full 3D line imp3D; do
+            for algorithm in gossip push-sum; do
+              nodes=1000
+              if [ "$topology" = line ] && [ "$algorithm" = push-sum ]; then
+                nodes=50
+              fi
+              timeout 300 dotnet fsi GossipSimulator.fsx "$nodes" "$topology" "$algorithm" --seed 2 --verify
+            done
+          done
+
+      - name: The same seed gives the same rounds, messages and estimates
+        run: |
+          for run in 1 2; do
+            timeout 300 dotnet fsi GossipSimulator.fsx 500 imp3D push-sum --seed 7 \
+              | grep -E '^(Rounds|Messages sent|Converged nodes|Estimates):' > "push-sum-$run.txt"
+            timeout 300 dotnet fsi GossipSimulator.fsx 500 3D gossip --seed 7 \
+              | grep -E '^(Rounds|Messages sent|Coverage|Hearings per node):' > "gossip-$run.txt"
+          done
+          cat push-sum-1.txt gossip-1.txt
+          diff push-sum-1.txt push-sum-2.txt
+          diff gossip-1.txt gossip-2.txt
+
+      - name: --csv prints one line with every column
+        run: |
+          header=$(dotnet fsi GossipSimulator.fsx --csv-header)
+          timeout 300 dotnet fsi GossipSimulator.fsx 1000 full gossip --seed 3 --verify --csv > row.csv
+          cat row.csv
+          test "$(wc -l < row.csv)" -eq 1
+          test "$(awk -F, '{ print NF }' row.csv)" -eq "$(echo "$header" | awk -F, '{ print NF }')"
+
+      - name: A bad argument exits with code 2
+        run: |
+          code=0
+          dotnet fsi GossipSimulator.fsx 100 ring gossip || code=$?
+          if [ "$code" -ne 2 ]; then
+            echo "Expected exit code 2 for an unknown topology, got $code"
+            exit 1
+          fi
